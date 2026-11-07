@@ -31,7 +31,7 @@
 | M2 | Media, Steam & Now-Playing Flow Hardening | `/api/auth/steam/callback`, `/api/media/now-playing`, `spotify-api.ts`, `mhwilds-api.ts`, `live-widget/page.tsx` | M1 | DONE |
 | M3 | RSS Feeds & News Flow Optimization | `news-container.tsx`, `news.ts`, `youtube.ts` payload limits and CPU optimization | M1 | DONE |
 | M4 | Automated Resilience Testing & Validation Gate | `scripts/test-resilience.mjs`, `package.json` test scripts, full build/lint/typecheck pass | M2, M3 | DONE (Gate: PASS) |
-| M5 | Git Commit & Cloudflare Deployment | Git staging/commit and running deploy script | M4 | IN_PROGRESS (Worker M5: 75403abd-6efd-4d9d-8823-ca8cb3df6078) |
+| M5 | Git Commit & Cloudflare Deployment | Git staging/commit and running deploy script | M4 | DONE (Commit: 54d1194, OpenNext bundle: .open-next/worker.js) |
 
 ## Code Layout
 - `src/lib/resilience/`: Centralized resilient network utilities (`resilient-fetch.ts`)
