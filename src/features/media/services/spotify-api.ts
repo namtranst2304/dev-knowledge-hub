@@ -1,4 +1,3 @@
-
 export interface SpotifyPlaylistItem {
     id: string;
     name: string;
@@ -134,42 +133,51 @@ export async function spotifyFetch(endpoint: string, accessToken: string, init?:
     }
 }
 
-export async function playSpotifyContext(accessToken: string, contextUri: string) {
-    const response = await fetch('https://api.spotify.com/v1/me/player/play', {
-        method: 'PUT',
-        headers: {
-            Authorization: `Bearer ${accessToken}`,
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ context_uri: contextUri }),
-        signal: AbortSignal.timeout(5000)
-    });
+export async function playSpotifyContext(accessToken: string, contextUri: string): Promise<{ success?: boolean; error?: string }> {
+    try {
+        const response = await fetch('https://api.spotify.com/v1/me/player/play', {
+            method: 'PUT',
+            headers: {
+                Authorization: `Bearer ${accessToken}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ context_uri: contextUri }),
+            signal: AbortSignal.timeout(5000)
+        });
 
-    if (!response.ok && response.status !== 204) {
-        // 404 means no active device found
-        if (response.status === 404) return { error: 'NO_ACTIVE_DEVICE' };
-        const error = await response.json().catch(() => ({}));
-        console.error('Spotify Playback Error:', error);
-        throw new Error('Failed to play context');
+        if (!response.ok && response.status !== 204) {
+            // 404 means no active device found
+            if (response.status === 404) return { error: 'NO_ACTIVE_DEVICE' };
+            const error = await response.json().catch(() => ({}));
+            console.error('Spotify Playback Error:', error);
+            return { error: 'Failed to play context' };
+        }
+        return { success: true };
+    } catch (error) {
+        console.error('Spotify Playback Network/Timeout Error:', error);
+        return { error: error instanceof Error ? error.message : 'Failed to play context' };
     }
-    return { success: true };
 }
 
-
 export async function searchSpotifyPlaylists(accessToken: string, query: string): Promise<SpotifyPlaylistItem[]> {
-    const params = new URLSearchParams({
-        q: query,
-        type: 'playlist',
-        limit: '15'
-    });
-    const response = await fetch(`https://api.spotify.com/v1/search?${params.toString()}`, {
-        headers: {
-            Authorization: `Bearer ${accessToken}`
-        },
-        signal: AbortSignal.timeout(5000)
-    });
+    try {
+        const params = new URLSearchParams({
+            q: query,
+            type: 'playlist',
+            limit: '15'
+        });
+        const response = await fetch(`https://api.spotify.com/v1/search?${params.toString()}`, {
+            headers: {
+                Authorization: `Bearer ${accessToken}`
+            },
+            signal: AbortSignal.timeout(5000)
+        });
 
-    if (!response.ok) return [];
-    const data = (await response.json()) as { playlists?: { items?: SpotifyPlaylistItem[] } };
-    return data.playlists?.items || [];
+        if (!response.ok) return [];
+        const data = (await response.json()) as { playlists?: { items?: SpotifyPlaylistItem[] } };
+        return data.playlists?.items || [];
+    } catch (error) {
+        console.error('Spotify search playlists error:', error);
+        return [];
+    }
 }

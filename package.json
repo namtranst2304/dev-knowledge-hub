@@ -13,8 +13,9 @@
     "type-check": "tsc --noEmit",
     "check": "tsc --noEmit && eslint",
     "test": "node scripts/test-qa-flows.mjs",
+    "test:resilience": "node scripts/test-resilience.mjs",
     "test:e2e": "node scripts/test-live-endpoints.mjs",
-    "test:all": "node scripts/test-qa-flows.mjs && node scripts/test-live-endpoints.mjs"
+    "test:all": "node scripts/test-qa-flows.mjs && node scripts/test-resilience.mjs && node scripts/test-live-endpoints.mjs"
   },
   "dependencies": {
     "@hello-pangea/dnd": "^18.0.1",
@@ -39,6 +40,7 @@
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
     "fast-xml-parser": "^5.3.4",
+    "isomorphic-dompurify": "^4.4.0",
     "lucide-react": "^0.563.0",
     "motion": "^12.31.0",
     "next": "^16.1.6",

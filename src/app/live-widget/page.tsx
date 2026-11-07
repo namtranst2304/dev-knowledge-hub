@@ -32,11 +32,27 @@ export default function LiveWidgetPage() {
     useEffect(() => {
         let cancelled = false;
         let pollTimeout: ReturnType<typeof setTimeout>;
+        let consecutiveFailures = 0;
+
+        const BASE_POLL_MS = 30000;
+        const MAX_POLL_MS = 300000;
+
+        const calculateBackoff = (failures: number): number => {
+            // Progressive jittered exponential backoff: 30s -> 60s -> 120s up to 300s max with ±10% jitter
+            const exponentialMs = Math.min(MAX_POLL_MS, BASE_POLL_MS * Math.pow(2, failures));
+            const jitterFactor = 1 + (Math.random() * 0.2 - 0.1); // ±10%
+            return Math.round(exponentialMs * jitterFactor);
+        };
+
         const fetchTelemetry = async () => {
-            let nextPollMs = 30000;
+            let nextPollMs = BASE_POLL_MS;
             try {
-                const res = await fetch('/api/media/now-playing', { cache: 'no-store' });
+                const res = await fetch('/api/media/now-playing', {
+                    cache: 'no-store',
+                    signal: AbortSignal.timeout(8000)
+                });
                 if (res.ok) {
+                    consecutiveFailures = 0;
                     const json: TelemetryData = await res.json();
                     if (cancelled) return;
                     setData(json);
@@ -51,11 +67,13 @@ export default function LiveWidgetPage() {
                         setSessionSeconds(0);
                     }
                 } else {
-                    nextPollMs = 300000;
+                    consecutiveFailures++;
+                    nextPollMs = calculateBackoff(consecutiveFailures);
                 }
             } catch (e) {
                 console.error('Telemetry fetch error:', e);
-                nextPollMs = 300000;
+                consecutiveFailures++;
+                nextPollMs = calculateBackoff(consecutiveFailures);
             } finally {
                 if (!cancelled) pollTimeout = setTimeout(fetchTelemetry, nextPollMs);
             }

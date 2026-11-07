@@ -72,12 +72,9 @@ export async function NewsContainer({ locale, categoryId }: NewsContainerProps) 
     const featuredLinks = new Set(featuredItems.map(i => i.link));
     const remainingItems = newsItems.filter(i => !featuredLinks.has(i.link));
 
-    let trendingItems: NewsItem[] = [];
-    if (categoryId === 'all') {
-        trendingItems = remainingItems.slice(0, 10);
-    } else {
-        trendingItems = (await getNews()).slice(0, 10);
-    }
+    const trendingItems: NewsItem[] = categoryId === 'all'
+        ? remainingItems.slice(0, 10)
+        : (remainingItems.length >= 5 ? remainingItems.slice(0, 10) : newsItems.slice(0, 10));
 
     const feedItems = categoryId === 'all' ? remainingItems.slice(10) : remainingItems;
 

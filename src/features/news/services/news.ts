@@ -1,6 +1,7 @@
 import { XMLParser } from 'fast-xml-parser';
 import { NewsItem } from '@/features/news/types';
 import { FEEDS, CATEGORIES } from '@/features/news/constants/feeds';
+import { resilientFetch } from '@/lib/resilience/resilient-fetch';
 
 export { FEEDS, CATEGORIES };
 
@@ -40,7 +41,8 @@ export async function getNews(categoryId?: string): Promise<NewsItem[]> {
 
     const parser = new XMLParser({
         ignoreAttributes: false,
-        attributeNamePrefix: ""
+        attributeNamePrefix: "",
+        parseTagValue: false
     });
 
     const targetFeeds = categoryId && categoryId !== 'all'
@@ -48,20 +50,37 @@ export async function getNews(categoryId?: string): Promise<NewsItem[]> {
         : FEEDS.filter(f => !(f as { category?: string }).category);
 
     const allNewsPromises = targetFeeds.map(async (feed) => {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 4000); // 4s timeout
-
         try {
-            const response = await fetch(feed.url, {
-                next: { revalidate: 180 }, // 3 minutes cache for super fast news loading
-                signal: controller.signal
+            const fetchRes = await resilientFetch<string>(feed.url, {
+                timeoutMs: 3800, // 3500ms-4000ms strict timeout boundary
+                maxBytes: 500 * 1024, // 500KB payload cap to protect Worker memory & CPU
+                responseType: 'text',
+                retries: 0,
+                headers: {
+                    'User-Agent': 'DevKnowledgeHub-RSS-Bot/1.0',
+                    'Accept': 'application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.8'
+                }
             });
-            clearTimeout(timeoutId);
 
-            if (!response.ok) return [];
+            if (!fetchRes.ok || !fetchRes.data) {
+                if (fetchRes.status === 504) {
+                    console.error(`Timeout fetching RSS from ${feed.url} (exceeded 3800ms)`);
+                } else if (fetchRes.status === 413) {
+                    console.error(`RSS feed ${feed.url} rejected: payload exceeds 500KB cap`);
+                } else {
+                    console.error(`Error fetching RSS from ${feed.url}: status ${fetchRes.status}`);
+                }
+                return [];
+            }
 
-            const xmlData = await response.text();
-            const result = parser.parse(xmlData) as ParsedRSSResult;
+            let result: ParsedRSSResult;
+            try {
+                result = parser.parse(fetchRes.data) as ParsedRSSResult;
+            } catch (parseErr) {
+                console.error(`Malformed XML from ${feed.url}:`, parseErr);
+                return [];
+            }
+
             if (!result?.rss?.channel) return [];
 
             const channel = result.rss.channel;
@@ -70,15 +89,20 @@ export async function getNews(categoryId?: string): Promise<NewsItem[]> {
 
             return items.map((item) => {
                 const imageUrl = extractImageUrl(item) || DEFAULT_NEWS_THUMBNAIL;
-                const description = item.description || "";
-                const cleanDescription = decodeEntities((description.replace(/<[^>]*>/g, "").split(".")[0] + ".").trim().normalize('NFC'));
-                const title = decodeEntities((item.title || "").trim().normalize('NFC'));
+                const rawDesc = String(item.description ?? "");
+                // Streamline string processing for Cloudflare Worker 10ms CPU limits:
+                // Truncate to first 800 chars before regex HTML stripping and taking first sentence
+                const shortDesc = rawDesc.length > 800 ? rawDesc.slice(0, 800) : rawDesc;
+                const strippedDesc = shortDesc.includes('<') ? shortDesc.replace(/<[^>]*>/g, "") : shortDesc;
+                const firstSentence = (strippedDesc.split(".")[0] || "").trim();
+                const cleanDescription = firstSentence ? decodeEntities(`${firstSentence}.`).normalize('NFC') : "";
+                const title = decodeEntities(String(item.title ?? "").trim()).normalize('NFC');
                 const parsedPubDate = item.pubDate ? new Date(item.pubDate) : null;
                 const pubDate = parsedPubDate && !Number.isNaN(parsedPubDate.getTime()) ? parsedPubDate : new Date();
 
                 return {
                     title: title,
-                    link: item.link,
+                    link: item.link ? String(item.link) : "",
                     excerpt: cleanDescription,
                     time: pubDate.toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }),
                     pubDate: pubDate,
@@ -91,12 +115,7 @@ export async function getNews(categoryId?: string): Promise<NewsItem[]> {
                 } as NewsItem & { pubDate: Date };
             });
         } catch (error) {
-            clearTimeout(timeoutId);
-            if (error instanceof Error && error.name === 'AbortError') {
-                console.error(`Timeout fetching RSS from ${feed.url}`);
-            } else {
-                console.error(`Error fetching RSS from ${feed.url}:`, error);
-            }
+            console.error(`Error processing RSS from ${feed.url}:`, error);
             return [];
         }
     });
@@ -141,9 +160,10 @@ function extractImageUrl(item: RawRSSItem): string {
         if (media?.url) imageUrl = media.url;
     }
 
-    // 3. Try description for <img> tag
-    if (!imageUrl && description) {
-        const imgMatch = description.match(/<img[^>]+src=['"]([^'"]+)['"]/i) || description.match(/src=['"]([^'"]+)['"]/i);
+    // 3. Try description for <img> tag (fast path: check '<img' first, limit search window to first 3000 chars)
+    if (!imageUrl && description && description.includes('<img')) {
+        const descSlice = description.length > 3000 ? description.slice(0, 3000) : description;
+        const imgMatch = descSlice.match(/<img[^>]+src=['"]([^'"]+)['"]/i) || descSlice.match(/src=['"]([^'"]+)['"]/i);
         if (imgMatch) {
             imageUrl = imgMatch[1];
             if (imageUrl.startsWith('//')) imageUrl = 'https:' + imageUrl;
@@ -166,9 +186,10 @@ function extractImageUrl(item: RawRSSItem): string {
         }
     }
 
-    // 6. Try content:encoded
-    if (!imageUrl && contentEncoded) {
-        const imgMatch = contentEncoded.match(/<img[^>]+src=['"]([^'"]+)['"]/i);
+    // 6. Try content:encoded (fast path: check '<img' first, limit search window to first 3000 chars)
+    if (!imageUrl && contentEncoded && contentEncoded.includes('<img')) {
+        const contentSlice = contentEncoded.length > 3000 ? contentEncoded.slice(0, 3000) : contentEncoded;
+        const imgMatch = contentSlice.match(/<img[^>]+src=['"]([^'"]+)['"]/i);
         if (imgMatch) {
             imageUrl = imgMatch[1];
             if (imageUrl.startsWith('//')) imageUrl = 'https:' + imageUrl;
@@ -209,7 +230,7 @@ const ENTITY_MAP: Record<string, string> = {
 };
 
 function decodeEntities(text: string): string {
-    if (!text) return "";
+    if (!text || !text.includes('&')) return text ? text.trim() : "";
 
     let decoded = text.replace(/&(?:#(\d+)|#x([\da-fA-F]+)|(\w+));/g, (match, dec, hex, name) => {
         if (dec) return String.fromCharCode(parseInt(dec, 10));

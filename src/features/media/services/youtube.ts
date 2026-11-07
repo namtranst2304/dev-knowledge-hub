@@ -3,6 +3,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { revalidatePath } from 'next/cache';
 import { extractCleanVideoId, getYoutubeThumbnail } from '@/features/media/utils';
+import { resilientFetch } from '@/lib/resilience/resilient-fetch';
 
 export async function getVideos() {
     const supabase = await createClient();
@@ -49,10 +50,13 @@ export async function addVideo(formData: FormData) {
     let title = `Video ${videoId}`;
     try {
         const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`;
-        const res = await fetch(oembedUrl, { signal: AbortSignal.timeout(3000) });
-        if (res.ok) {
-            const data = await res.json();
-            if (data.title) title = data.title;
+        const oembedRes = await resilientFetch<{ title?: string }>(oembedUrl, {
+            timeoutMs: 3000,
+            maxBytes: 64 * 1024,
+            retries: 0
+        });
+        if (oembedRes.ok && oembedRes.data?.title) {
+            title = oembedRes.data.title;
         }
     } catch (e) {
         console.error('Error fetching oembed:', e);
@@ -445,20 +449,43 @@ export async function importYouTubePlaylist(urlOrId: string): Promise<{ success:
 
     try {
         const feedUrl = `https://www.youtube.com/feeds/videos.xml?playlist_id=${playlistId}`;
-        const res = await fetch(feedUrl, { signal: AbortSignal.timeout(5000) });
-        if (!res.ok) {
+        const fetchRes = await resilientFetch<string>(feedUrl, {
+            timeoutMs: 4000,
+            maxBytes: 500 * 1024,
+            responseType: 'text',
+            retries: 0,
+            headers: {
+                'User-Agent': 'DevKnowledgeHub-Media-Bot/1.0',
+                'Accept': 'application/atom+xml, application/xml, text/xml;q=0.9, */*;q=0.8'
+            }
+        });
+
+        if (!fetchRes.ok) {
+            if (fetchRes.status === 504) {
+                return { success: false, message: 'YouTube playlist feed timed out after 4000ms. Please try again later.' };
+            }
+            if (fetchRes.status === 413) {
+                return { success: false, message: 'Playlist feed is too large to import (exceeds 500KB limit).' };
+            }
             return { success: false, message: 'Failed to fetch playlist from YouTube. Please ensure the playlist is Public or Unlisted.' };
         }
 
-        const xmlText = await res.text();
-        if (xmlText.length > 1_000_000) {
-            return { success: false, message: 'Playlist feed is too large to import.' };
+        const xmlText = fetchRes.data;
+        if (!xmlText) {
+            return { success: false, message: 'Received empty playlist feed from YouTube.' };
         }
-        const parser = new XMLParser({
-            ignoreAttributes: false,
-            attributeNamePrefix: '@_'
-        });
-        const result = parser.parse(xmlText) as ParsedYouTubePlaylistFeed;
+
+        let result: ParsedYouTubePlaylistFeed;
+        try {
+            const parser = new XMLParser({
+                ignoreAttributes: false,
+                attributeNamePrefix: '@_'
+            });
+            result = parser.parse(xmlText) as ParsedYouTubePlaylistFeed;
+        } catch (parseErr) {
+            console.error('XML parsing error for YouTube playlist:', parseErr);
+            return { success: false, message: 'Malformed XML received from YouTube playlist feed.' };
+        }
 
         const feed = result?.feed;
         if (!feed) {

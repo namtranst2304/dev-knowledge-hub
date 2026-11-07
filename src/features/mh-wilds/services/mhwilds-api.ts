@@ -12,12 +12,16 @@ async function fetchLocal<T>(filename: string): Promise<T> {
 
     const fetchPromise = (async () => {
         const url = `${BASE_URL}/${filename}`;
-        const res = await fetch(url);
-        if (!res.ok) {
+        try {
+            const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
+            if (!res.ok) {
+                throw new Error(`Failed to load static data: ${res.status} ${res.statusText}`);
+            }
+            return (await res.json()) as T;
+        } catch (err) {
             jsonCache.delete(filename); // Clean up failed request from cache
-            throw new Error(`Failed to load static data: ${res.status} ${res.statusText}`);
+            throw err;
         }
-        return res.json() as Promise<T>;
     })();
 
     jsonCache.set(filename, fetchPromise);

@@ -41,11 +41,11 @@ export async function createTask(input: Record<string, unknown>): Promise<Task |
             } catch (innerErr: unknown) {
                 const innerMsg = innerErr instanceof Error ? innerErr.message : String(innerErr)
                 console.error('createTask fallback error:', innerMsg)
-                return { error: innerMsg }
+                return { error: 'Đã xảy ra lỗi hệ thống khi tạo.' }
             }
         }
         console.error('createTask error:', errorMsg)
-        return { error: errorMsg }
+        return { error: 'Đã xảy ra lỗi hệ thống khi tạo.' }
     }
 }
 
@@ -69,11 +69,11 @@ export async function updateTask(id: string, input: Record<string, unknown>): Pr
             } catch (innerErr: unknown) {
                 const innerMsg = innerErr instanceof Error ? innerErr.message : String(innerErr)
                 console.error('updateTask fallback error:', innerMsg)
-                return { error: innerMsg }
+                return { error: 'Đã xảy ra lỗi hệ thống khi cập nhật.' }
             }
         }
         console.error('updateTask error:', errorMsg)
-        return { error: errorMsg }
+        return { error: 'Đã xảy ra lỗi hệ thống khi cập nhật.' }
     }
 }
 

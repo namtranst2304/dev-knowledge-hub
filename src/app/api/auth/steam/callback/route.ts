@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
+import { resilientFetch } from '@/lib/resilience/resilient-fetch';
 
 export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
@@ -47,16 +48,18 @@ export async function GET(request: Request) {
     verifyParams.set('openid.mode', 'check_authentication');
 
     try {
-        const verifyRes = await fetch('https://steamcommunity.com/openid/login', {
+        const verifyResult = await resilientFetch<string>('https://steamcommunity.com/openid/login', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded',
             },
             body: verifyParams.toString(),
+            timeoutMs: 5000,
+            retries: 1,
+            responseType: 'text',
         });
 
-        const verifyText = await verifyRes.text();
-        if (!verifyText.includes('is_valid:true')) {
+        if (!verifyResult.ok || !verifyResult.data || !verifyResult.data.includes('is_valid:true')) {
             return NextResponse.redirect(`${baseUrl}/media/gaming?error=steam_verification_failed`);
         }
 

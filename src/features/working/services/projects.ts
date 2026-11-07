@@ -110,7 +110,7 @@ export async function createProject(input: Record<string, unknown>): Promise<Pro
         }
 
         console.error('createProject error:', errorMsg)
-        return { error: errorMsg }
+        return { error: 'Đã xảy ra lỗi hệ thống.' }
     }
 }
 
@@ -150,7 +150,7 @@ export async function updateProject(id: string, input: Record<string, unknown>):
         }
 
         console.error('updateProject error:', errorMsg)
-        return { error: errorMsg }
+        return { error: 'Đã xảy ra lỗi hệ thống.' }
     }
 }
 

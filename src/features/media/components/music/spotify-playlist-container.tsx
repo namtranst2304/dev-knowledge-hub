@@ -7,6 +7,7 @@ import { Link } from '@/i18n/routing';
 import { ChevronLeft, Music2, Clock, ExternalLink, Loader2 } from 'lucide-react';
 import Image from 'next/image';
 import { Badge } from '@/components/ui/badge';
+import DOMPurify from 'isomorphic-dompurify';
 import { useTranslations } from 'next-intl';
 
 interface SpotifyPlaylistContainerProps {
@@ -139,7 +140,7 @@ export function SpotifyPlaylistContainer({ playlistId, locale: _locale }: Spotif
                                     </a>
                                 </div>
                                 {playlist.description && (
-                                    <p className="text-primary/60 max-w-2xl line-clamp-2 text-xs" dangerouslySetInnerHTML={{ __html: playlist.description }} />
+                                    <p className="text-primary/60 max-w-2xl line-clamp-2 text-xs" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(playlist.description) }} />
                                 )}
                             </div>
                         </div>
