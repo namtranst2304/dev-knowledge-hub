@@ -21,7 +21,8 @@
 /build
 /.open-next/
 /.wrangler/
-/.agents/
+/.agents/*
+!/.agents/rules/
 
 # misc
 .DS_Store
